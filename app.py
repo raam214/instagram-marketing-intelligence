@@ -1,7 +1,13 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import numpy as np
 import plotly.express as px
+
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -38,24 +44,51 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- LOAD DATA & MODELS ----------------
+# ---------------- LOAD DATA ----------------
 
 
 @st.cache_data
 def load_data():
     return pd.read_csv("data/final_instagram_model_data.csv")
 
+# ---------------- TRAIN MODELS (CLOUD SAFE) ----------------
+
 
 @st.cache_resource
-def load_models():
-    return (
-        joblib.load("models/viral_classifier.pkl"),
-        joblib.load("models/engagement_regressor.pkl")
-    )
+def train_models(df):
+    X = df.drop(columns=["is_viral", "normalized_engagement"])
+    y_class = df["is_viral"]
+    y_reg = df["normalized_engagement"]
+
+    cat_cols = X.select_dtypes(include="object").columns
+    num_cols = X.select_dtypes(exclude="object").columns
+
+    preprocessor = ColumnTransformer([
+        ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),
+        ("num", "passthrough", num_cols)
+    ])
+
+    viral_model = Pipeline([
+        ("prep", preprocessor),
+        ("model", RandomForestClassifier(
+            n_estimators=120, random_state=42))
+    ])
+
+    engagement_model = Pipeline([
+        ("prep", preprocessor),
+        ("model", RandomForestRegressor(
+            n_estimators=120, random_state=42))
+    ])
+
+    viral_model.fit(X, y_class)
+    engagement_model.fit(X, y_reg)
+
+    return viral_model, engagement_model
 
 
+# ---------------- LOAD EVERYTHING ----------------
 df = load_data()
-viral_model, engagement_model = load_models()
+viral_model, engagement_model = train_models(df)
 
 # ---------------- HEADER ----------------
 st.markdown("## 📊 Instagram Marketing Intelligence Platform")
@@ -121,20 +154,22 @@ st.markdown('<div class="section-title">Performance Snapshot</div>',
 c1, c2, c3 = st.columns(3)
 
 with c1:
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-label">🔥 Viral Probability</div>
-        <div class="kpi-value">{viral_prob*100:.2f}%</div>
-    </div>
-    """ if viral_prob is not None else "", unsafe_allow_html=True)
+    if viral_prob is not None:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">🔥 Viral Probability</div>
+            <div class="kpi-value">{viral_prob*100:.2f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 with c2:
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-label">📈 Predicted Engagement</div>
-        <div class="kpi-value">{engagement_pred:.4f}</div>
-    </div>
-    """ if engagement_pred is not None else "", unsafe_allow_html=True)
+    if engagement_pred is not None:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">📈 Predicted Engagement</div>
+            <div class="kpi-value">{engagement_pred:.4f}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 with c3:
     st.markdown(f"""
